@@ -24,4 +24,3 @@ $userObjects.count #count
 $userObjects | Measure-Object #count
 
 $userObjects.DisplayName #print everyone's name
-
