@@ -1,17 +1,18 @@
 #functions for creation
 
-#users
-#mailboxes
-#security groups - done
-#mail-enabled security groups
-#365 groups
-#Sharepoint sites
+#users ✓
+#mailboxes ✓
+#security groups ✓
+#mail-enabled security groups ✓
+#365 groups ✓
+#Sharepoint sites ✓
 
 #>  notes
 ###create functions for each individual object type, build a more efficient combined function after we know how to build each one
-###for groups, we will be the default owner as the creator (we are connected interatively, if we were connected with app-only access we should specify an owner in the request)
+###for groups, we will be the default owner as the creator (we are connected interactively, if we were connected with app-only access we should specify an owner in the request)
 ###We should add MS Team functionality automatically for 365 groups to complete the suite of available end-user tools - this is still not enforced by the 365 group create operation on Graph, so we add an extra function to add a new MS Team to the new 365 group as part of the function
 ###omit error handling for now, we're just writing some very basic functions outside of a production environment - we can add error handling if we need to here to get the basic functionality working as we test however. 
+###omit any handling for bad or unexpected input, e.g. disallowed characters in email addresses or Sharepoint site names, for practise only
 
 #functions
 function create-SecurityGroup {
@@ -34,6 +35,18 @@ function create-SecurityGroup {
 
     #endpoint
     $output = Invoke-MgGraphRequest -Method POST -Uri "https://graph.microsoft.com/v1.0/groups" -body $bodyJson -OutputType PSObject
+    return $output
+}
+
+function create-MailEnabledSecurityGroup {
+    [cmdletbinding()] 
+    param( 
+        [string]$groupName, 
+        [string]$groupDescription
+    ) 
+
+    #still not supported on the Graph API, unified group or read-only :)
+    $output = New-DistributionGroup -Name "$($groupName)" -Alias "$($groupName)" -Type Security -PrimarySmtpAddress "$($groupName)@dollarlinedot.com"
     return $output
 }
 
@@ -93,7 +106,7 @@ param(
    
     $output = Invoke-MgGraphRequest -Method PUT -Uri "https://graph.microsoft.com/v1.0/groups/$($unifiedGroupGUID)/team" -body $bodyJson -OutputType PSObject
     Write-Verbose "Output: $($output)"
-    #if we don't get an object with an id property, it has failed, increment the try counter by 1 - we could use http status codes, but these are a little ureliable in some cases (I prefer to check the existance of something, rather than relying on the server-side vendor to tell us)
+    #if we don't get an object with an id property, it has failed, increment the try counter by 1 - we could use http status codes, but these are a little unreliable in some cases (I prefer to check the existence of something, rather than relying on the server-side vendor to tell us)
     if(Get-Member -inputobject $output -name "id" -Membertype Properties -ErrorAction SilentlyContinue){
         return $output
     }
@@ -104,11 +117,69 @@ param(
     }
 }
 
+function create-SharedMailbox {
+    [cmdletbinding()] 
+    param( 
+        [string]$mailboxName
+    ) 
+
+    $output = New-Mailbox -Shared -Name "$($mailboxName)" -PrimarySmtpAddress "$($mailboxName)@dollarlinedot.com"
+    return $output
+}
+
+function create-SharepointSite {
+    [cmdletbinding()] 
+    param( 
+        [string]$siteName
+    ) 
+    $output = New-PnPSite -Type TeamSite -Title "$($siteName)" -Alias $($siteName) -verbose
+    return $output
+}
+
+function create-User {
+    [cmdletbinding()] 
+    param( 
+        [string]$displayName
+    ) 
+
+    #body
+    $bodyHash = @{
+    accountEnabled = $false #don't leave accounts enabled that aren't really being used, even in test environments
+	displayName = "$($displayName)"
+	mailNickname = "$($displayName)"
+	userPrincipalName = "$($displayName)@dollarlinedot.com"
+	passwordProfile = @{
+		forceChangePasswordNextSignIn = $true
+		password = "$(get-random)!&A" #set arbitrary password
+	    }   
+    } 
+    $bodyJson = convertTo-Json -inputObject $bodyHash
+
+    #endpoint
+    $output = Invoke-MgGraphRequest -Method POST -Uri "https://graph.microsoft.com/v1.0/users" -body $bodyJson -OutputType PSObject
+    return $output
+}
+
+
+
 #connect and execute
 Connect-MgGraph
+Connect-ExchangeOnline
+Disconnect-ExchangeOnline -Confirm:$false #must happen before using PnP, there is an assembly conflict
+$clientID = ""
+#connect, pass in the client ID
+Connect-PnPOnline -url "https://heraklion-admin.sharepoint.com/" -ClientId $clientID -Interactive
+Disconnect-PnPOnline #if using Graph, start new session (disconnect is not enough as PnP assemblies are still loaded into session)
+
 
 create-SecurityGroup -groupName "test1" -groupDescription "groupdesc" -verbose
+
 $newUnifiedGroup = create-UnifiedGroup -groupName "test7" -groupDescription "groupdesc" -Verbose
 #add MS Team to new unified group separately, MS docs recommend strong retry logic for this as there may be server-side delays in propagation, handling this in the same function as the group creation has too much liability
 #>see more: https://learn.microsoft.com/pl-pl/graph/api/team-put-teams?view=graph-rest-1.0&tabs=http
 $newTeamForUnifiedGroup = create-TeamForUnifiedGroup -unifiedGroupGUID $newUnifiedGroup.id -Verbose
+
+create-MailEnabledSecurityGroup -groupName "test8" -groupDescription "groupdesc" -verbose
+create-SharedMailbox -mailboxName "test9"
+create-SharepointSite -siteName "test10" -verbose
+create-User -displayName "testuser" -verbose

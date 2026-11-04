@@ -11,7 +11,7 @@ Register-PnPEntraIDAppForInteractiveLogin -ApplicationName "PnP.PowerShell" -Ten
 #store newly created app ID
 $clientID = ""
 
-#connect, pass in the 
+#connect, pass in the client ID
 Connect-PnPOnline -url "https://heraklion-admin.sharepoint.com/" -ClientId $clientID -Interactive
 
 #get all sites, while being connect to the admin site
